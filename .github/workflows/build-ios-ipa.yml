@@ -14,36 +14,56 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
 
       - name: Install dependencies & build web bundle
         run: |
           npm install
-          npm run build
+          npx vite build
 
       - name: Setup Capacitor iOS project
         run: |
           npm install --no-save @capacitor/core @capacitor/cli @capacitor/ios
           npx cap add ios
           npx cap sync ios
+          if [ -f "ios/App/Podfile" ] && [ ! -d "ios/App/Pods" ]; then
+            cd ios/App && pod install
+          fi
 
       - name: Build unsigned iOS .app with Xcode
         run: |
-          xcodebuild \
-            -project ios/App/App.xcodeproj \
-            -scheme App \
-            -configuration Release \
-            -sdk iphoneos \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            build \
-            SYMROOT="$PWD/build-ios"
+          if [ -d "ios/App/App.xcworkspace" ] && [ -f "ios/App/Podfile" ]; then
+            xcodebuild \
+              -workspace ios/App/App.xcworkspace \
+              -scheme App \
+              -configuration Release \
+              -sdk iphoneos \
+              -derivedDataPath "$PWD/build-ios" \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" \
+              build
+          else
+            xcodebuild \
+              -project ios/App/App.xcodeproj \
+              -scheme App \
+              -configuration Release \
+              -sdk iphoneos \
+              -derivedDataPath "$PWD/build-ios" \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" \
+              build
+          fi
 
       - name: Package HaloDesignHub-unsigned.ipa
         run: |
+          APP_PATH=$(find build-ios -name "App.app" -type d | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: App.app not found"
+            exit 1
+          fi
           mkdir -p Payload
-          cp -R build-ios/Release-iphoneos/App.app Payload/App.app
+          cp -R "$APP_PATH" Payload/App.app
           zip -r -y HaloDesignHub-unsigned.ipa Payload
 
       - name: Upload IPA artifact
